@@ -1,0 +1,1654 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Inventário Diário - CCTV / Loja</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- html2canvas & jsPDF para Screenshot (PNG) e Geração Direta de PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                        signature: ['Caveat', 'cursive'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Oculta setas padrão de input number para visual limpo estilo folha física */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+
+        /* Estilos otimizados para impressão fiel à folha física */
+        @media print {
+            @page {
+                size: A4 landscape;
+                margin: 8mm;
+            }
+            body {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .table-wrapper {
+                overflow: visible !important;
+                box-shadow: none !important;
+                border: 1px solid #000 !important;
+            }
+            table {
+                font-size: 9px !important;
+            }
+            th, td {
+                padding: 3px 4px !important;
+                border: 1px solid #444 !important;
+            }
+            input {
+                border: none !important;
+                background: transparent !important;
+                padding: 0 !important;
+                font-size: 9px !important;
+            }
+            .signature-line-input {
+                border-bottom: 1.5px solid #000 !important;
+                font-size: 16px !important;
+            }
+            .category-row {
+                background-color: #1e293b !important;
+                color: #ffffff !important;
+            }
+            .signature-box {
+                break-inside: avoid;
+                page-break-inside: avoid;
+                border: 1px solid #000 !important;
+            }
+        }
+
+        /* Classe temporária aplicada durante captura de Screenshot PNG / PDF para sair a folha inteira sem barras de rolagem */
+        .capturing-sheet .no-capture {
+            display: none !important;
+        }
+        .capturing-sheet #sheet-table-scroll {
+            max-height: none !important;
+            overflow: visible !important;
+        }
+        .capturing-sheet #capture-area {
+            background-color: #fefce8 !important;
+            padding: 16px !important;
+            width: 1280px !important;
+            max-width: none !important;
+        }
+        .capturing-sheet thead {
+            position: static !important;
+        }
+        .capturing-sheet th, .capturing-sheet td {
+            position: static !important;
+        }
+        .capturing-sheet .capture-value-text {
+            display: block !important;
+        }
+        .capturing-sheet .capture-hide-input {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Notificação Toast Customizada (Substitui alert()) -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none no-print"></div>
+
+    <!-- Overlay de Carregamento durante Geração de Screenshot / PDF -->
+    <div id="loading-overlay" class="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full text-center border border-slate-200">
+            <div class="w-12 h-12 border-4 border-amber-400 border-t-slate-900 rounded-full animate-spin mx-auto mb-4"></div>
+            <h3 id="loading-title" class="text-base font-bold text-slate-900">Gerando Evidência da Folha...</h3>
+            <p id="loading-subtitle" class="text-xs text-slate-500 mt-1">Capturando todos os itens, horários e assinaturas em alta resolução.</p>
+        </div>
+    </div>
+
+    <!-- Modal de Compartilhamento Rápido estilo Wooqer (WhatsApp / Facebook / Apps) -->
+    <div id="share-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[92vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                <div class="flex items-center gap-2.5">
+                    <div class="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
+                        <i data-lucide="share-2" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">Enviar Auditoria (Estilo Wooqer)</h3>
+                        <p class="text-xs text-slate-500">Prévia gerada! Compartilhe no WhatsApp, Facebook ou Apps</p>
+                    </div>
+                </div>
+                <button onclick="closeShareModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Preview da Imagem Capturada -->
+            <div id="share-preview-box" class="mb-4 bg-amber-50 rounded-xl p-2 border border-amber-200 max-h-48 overflow-hidden flex items-center justify-center">
+                <img id="share-preview-img" src="" alt="Prévia da Folha" class="max-h-44 w-auto object-contain rounded shadow-xs">
+            </div>
+
+            <!-- Resumo Operacional Pronto -->
+            <div class="mb-4">
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-[11px] font-bold uppercase tracking-wider text-slate-500">Resumo Executivo do Turno (Pronto para WhatsApp / Facebook)</label>
+                    <button type="button" onclick="copyShareSummary()" class="text-xs font-semibold text-amber-700 hover:text-amber-800 flex items-center gap-1">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copiar Resumo
+                    </button>
+                </div>
+                <textarea id="share-summary-text" rows="5" readonly class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-slate-700 outline-none resize-none"></textarea>
+            </div>
+
+            <!-- Botões de Envio Direto -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <a id="whatsapp-web-link" href="#" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-xs">
+                    <i data-lucide="message-circle" class="w-4 h-4"></i>
+                    <span>Enviar no WhatsApp</span>
+                </a>
+                <button type="button" onclick="triggerNativeShare('image')" class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white transition shadow-xs">
+                    <i data-lucide="share-2" class="w-4 h-4"></i>
+                    <span>Compartilhar Arquivo (Apps)</span>
+                </button>
+                <a id="facebook-share-link" href="#" target="_blank" rel="noopener noreferrer" onclick="copyShareSummary()" class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-sky-700 hover:bg-sky-800 text-white transition shadow-xs">
+                    <i data-lucide="facebook" class="w-4 h-4"></i>
+                    <span>Facebook (Resumo Copiado)</span>
+                </a>
+                <button type="button" onclick="triggerNativeShare('pdf')" class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition shadow-xs">
+                    <i data-lucide="file-text" class="w-4 h-4"></i>
+                    <span>Compartilhar PDF (Apps)</span>
+                </button>
+                <button type="button" onclick="downloadLastScreenshot()" class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition">
+                    <i data-lucide="image" class="w-4 h-4"></i>
+                    <span>Baixar Screenshot PNG</span>
+                </button>
+                <button type="button" onclick="validateAndGeneratePDF()" class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    <span>Baixar PDF (A4 Paisagem)</span>
+                </button>
+                <button type="button" onclick="validateAndExportCSV()" class="sm:col-span-2 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-900 text-white transition">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                    <span>Exportar Planilha CSV (Excel)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmação Customizado (Substitui confirm()) -->
+    <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-fade-in">
+            <div class="flex items-center gap-3 text-amber-600 mb-3">
+                <div class="p-2 bg-amber-100 rounded-lg">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <h3 id="confirm-title" class="text-lg font-bold text-slate-900">Confirmar Ação</h3>
+            </div>
+            <p id="confirm-message" class="text-slate-600 text-sm mb-6 leading-relaxed">Tem certeza que deseja continuar?</p>
+            <div class="flex justify-end gap-3">
+                <button id="confirm-cancel-btn" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">
+                    Cancelar
+                </button>
+                <button id="confirm-ok-btn" class="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition shadow-sm">
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Barra Superior Fixa Estilo Checklist Operacional Moderno (Wooqer) -->
+    <div class="sticky top-0 z-40 bg-slate-900 text-white border-b-2 border-amber-400 shadow-md no-print no-capture">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-3 flex-wrap">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-400 text-slate-900 text-xs font-extrabold tracking-wide uppercase">
+                    <i data-lucide="check-square" class="w-3.5 h-3.5"></i> Auditoria Wooqer
+                </span>
+                <!-- Barra de Progresso do Checklist -->
+                <div class="flex items-center gap-2 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
+                    <div class="w-20 sm:w-28 h-2 bg-slate-700 rounded-full overflow-hidden">
+                        <div id="audit-progress-bar" class="h-full bg-emerald-400 transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <span id="audit-progress-text" class="text-[11px] font-mono font-bold text-amber-300">0/38 (0%)</span>
+                </div>
+            </div>
+
+            <!-- Botões Principais de Evidência e Compartilhamento -->
+            <div class="flex flex-wrap items-center gap-2">
+                <button onclick="validateAndScreenshot()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-sky-500 hover:bg-sky-600 text-white transition shadow-xs">
+                    <i data-lucide="camera" class="w-4 h-4"></i>
+                    <span>Screenshot (PNG)</span>
+                </button>
+                <button onclick="validateAndGeneratePDF()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-rose-600 hover:bg-rose-700 text-white transition shadow-xs">
+                    <i data-lucide="file-down" class="w-4 h-4"></i>
+                    <span>Gerar PDF</span>
+                </button>
+                <button onclick="validateAndShare()" class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-slate-950 transition shadow-xs">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                    <span>Finalizar & Enviar</span>
+                </button>
+                <button onclick="validateAndExportCSV()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-slate-700 hover:bg-slate-600 text-white border border-slate-600 transition">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                    <span>CSV</span>
+                </button>
+                <button onclick="validateAndPrint()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-slate-700 hover:bg-slate-600 text-white border border-slate-600 transition">
+                    <i data-lucide="printer" class="w-4 h-4"></i>
+                    <span>Imprimir</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Área Capturável Completa da Folha (Cabeçalho + Tabela + Assinaturas) -->
+    <div id="capture-area" class="flex-1 flex flex-col">
+
+    <!-- Cabeçalho Principal -->
+    <header class="bg-amber-50/90 border-b-4 border-amber-400 shadow-sm">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                <!-- Título e Identificação -->
+                <div class="flex items-start sm:items-center gap-3.5">
+                    <div class="bg-amber-400 text-slate-900 p-3 rounded-xl shadow-xs shrink-0 no-print no-capture">
+                        <i data-lucide="clipboard-check" class="w-7 h-7"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                                Controle de Inventário Diário
+                            </h1>
+                            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-200 text-amber-900 border border-amber-400">
+                                OPERAÇÃO CCTV / LOJA
+                            </span>
+                        </div>
+                        <p class="text-xs sm:text-sm text-slate-600 mt-0.5">
+                            Conferência física por horários (Inicial, 08:00h, 14:00h, 20:00h, Final) e batimento de sistema
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Botões Secundários de Gestão da Lista -->
+                <div class="flex flex-wrap items-center gap-2 no-print no-capture">
+                    <button onclick="openAddProductModal()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold bg-amber-400 hover:bg-amber-500 text-slate-900 transition shadow-xs">
+                        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                        <span>Novo Produto</span>
+                    </button>
+                    <button onclick="confirmClearQuantities()" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium bg-white hover:bg-red-50 text-red-600 border border-red-200 transition">
+                        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                        <span>Limpar Contagens</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Metadados do Turno (Data, Loja/Unidade, Operador CCTV, Gerente) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4 pt-4 border-t border-amber-200/80">
+                <div class="bg-white p-2.5 rounded-lg border border-amber-200 flex items-center gap-2.5">
+                    <i data-lucide="calendar" class="w-4 h-4 text-amber-600 shrink-0 no-print no-capture"></i>
+                    <div class="w-full">
+                        <label for="shift-date" class="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Data do Inventário</label>
+                        <input type="date" id="shift-date" class="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none mt-0.5">
+                    </div>
+                </div>
+                <div class="bg-white p-2.5 rounded-lg border border-amber-200 flex items-center gap-2.5">
+                    <i data-lucide="store" class="w-4 h-4 text-amber-600 shrink-0 no-print no-capture"></i>
+                    <div class="w-full">
+                        <label for="store-unit" class="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Loja / Unidade</label>
+                        <input type="text" id="store-unit" placeholder="Ex: Loja 01 - Matriz" class="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none mt-0.5 placeholder:font-normal placeholder:text-slate-400">
+                    </div>
+                </div>
+                <div id="meta-box-cctv" class="bg-white p-2.5 rounded-lg border border-amber-200 flex items-center gap-2.5 transition-colors">
+                    <i data-lucide="video" class="w-4 h-4 text-amber-600 shrink-0 no-print no-capture"></i>
+                    <div class="w-full">
+                        <label for="cctv-operator" class="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Operador CCTV *</label>
+                        <input type="text" id="cctv-operator" placeholder="Digite o nome do operador CCTV..." class="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none mt-0.5 placeholder:font-normal placeholder:text-slate-400">
+                    </div>
+                </div>
+                <div id="meta-box-manager" class="bg-white p-2.5 rounded-lg border border-amber-200 flex items-center gap-2.5 transition-colors">
+                    <i data-lucide="user-check" class="w-4 h-4 text-amber-600 shrink-0 no-print no-capture"></i>
+                    <div class="w-full">
+                        <label for="store-manager" class="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Gerente Responsável *</label>
+                        <input type="text" id="store-manager" placeholder="Digite o nome do gerente..." class="w-full bg-transparent text-sm font-semibold text-slate-900 outline-none mt-0.5 placeholder:font-normal placeholder:text-slate-400">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Barra de Filtros, Pesquisa e Resumo Rápido -->
+    <section class="max-w-[1600px] w-full mx-auto px-4 sm:px-6 pt-4 no-print no-capture">
+        <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            <!-- Pesquisa e Filtro de Categoria -->
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+                <div class="relative flex-1 max-w-md">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" id="search-input" placeholder="Buscar por Código (PLU) ou Descrição..." class="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-500 outline-none">
+                    <button id="clear-search-btn" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <i data-lucide="filter" class="w-4 h-4 text-slate-500 hidden sm:block"></i>
+                    <select id="category-filter" class="w-full sm:w-auto px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:ring-2 focus:ring-amber-400 focus:border-amber-500 outline-none font-medium text-slate-700">
+                        <option value="ALL">Todas as Categorias (38 itens)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Indicadores Rápidos -->
+            <div class="flex items-center justify-between sm:justify-end gap-4 text-xs border-t md:border-t-0 pt-2.5 md:pt-0 border-slate-100">
+                <div class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                    <span class="text-slate-600">Conferidos OK:</span>
+                    <strong id="stat-ok" class="text-slate-900 font-bold text-sm">0</strong>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                    <span class="text-slate-600">Com Divergência:</span>
+                    <strong id="stat-diff" class="text-red-600 font-bold text-sm">0</strong>
+                </div>
+                <div class="hidden sm:flex items-center gap-1 text-slate-400" title="Todos os dados são salvos automaticamente no navegador">
+                    <i data-lucide="cloud-check" class="w-4 h-4 text-emerald-600"></i>
+                    <span class="text-emerald-700 font-medium">Salvo</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Conteúdo Principal: Tabela de Inventário -->
+    <main class="max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-4 flex-1">
+        <div class="bg-white rounded-xl border border-slate-300 shadow-sm overflow-hidden table-wrapper">
+            <div id="sheet-table-scroll" class="overflow-x-auto max-h-[68vh] print:max-h-none">
+                <table class="w-full text-left border-collapse" id="inventory-table">
+                    <thead class="sticky top-0 z-20 shadow-xs">
+                        <tr class="bg-amber-200 text-slate-900 border-b-2 border-slate-400 text-xs uppercase tracking-wider">
+                            <th class="py-3 px-3 font-bold border-r border-slate-300 w-24 sticky left-0 bg-amber-200 z-30">Código</th>
+                            <th class="py-3 px-3 font-bold border-r border-slate-300 min-w-[260px]">Descrição do Produto</th>
+                            <th class="py-2.5 px-2 font-bold border-r border-slate-300 text-center w-24 bg-amber-300/60" title="Quantidade Inicial da Loja">
+                                Qtd. Inicial<br><span class="text-[10px] font-semibold text-slate-700">Loja</span>
+                            </th>
+                            <th class="py-2.5 px-2 font-bold border-r border-slate-300 text-center w-20">
+                                08:00h<br><span class="text-[10px] font-normal text-slate-700">1ª Ronda</span>
+                            </th>
+                            <th class="py-2.5 px-2 font-bold border-r border-slate-300 text-center w-20">
+                                14:00h<br><span class="text-[10px] font-normal text-slate-700">2ª Ronda</span>
+                            </th>
+                            <th class="py-2.5 px-2 font-bold border-r border-slate-300 text-center w-20">
+                                20:00h<br><span class="text-[10px] font-normal text-slate-700">3ª Ronda</span>
+                            </th>
+                            <th class="py-2.5 px-2 font-bold border-r border-slate-300 text-center w-24 bg-amber-300/60" title="Quantidade Final da Loja">
+                                Qtd. Final<br><span class="text-[10px] font-semibold text-slate-700">Loja</span>
+                            </th>
+                            <th class="py-2.5 px-2 font-bold border-r border-slate-300 text-center w-24 bg-amber-300/60" title="Quantidade registrada no Sistema">
+                                Qtd.<br><span class="text-[10px] font-semibold text-slate-700">Sistema</span>
+                            </th>
+                            <th class="py-2.5 px-2 font-bold border-r border-slate-300 text-center w-24 bg-slate-800 text-amber-300" title="Cálculo automático: Qtd. Final Loja - Qtd. Sistema">
+                                Diferença<br><span class="text-[10px] font-normal text-slate-300">(Final - Sist.)</span>
+                            </th>
+                            <th class="py-3 px-3 font-bold min-w-[200px]">
+                                Observação <span class="text-[10px] font-normal normal-case text-slate-700">(Letras/Números)</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-tbody" class="divide-y divide-slate-200 text-sm">
+                        <!-- Linhas geradas dinamicamente via JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Legenda de Uso Rápido -->
+        <div class="mt-2.5 flex flex-wrap items-center justify-between text-xs text-slate-500 gap-2 no-print no-capture">
+            <div class="flex items-center gap-4 flex-wrap">
+                <span>💡 <strong>Dica:</strong> Pressione <kbd class="px-1.5 py-0.5 bg-white border border-slate-300 rounded text-[11px] font-mono">Enter</kbd> para pular rapidamente para o próximo produto na mesma coluna.</span>
+                <span>🔢 Colunas numéricas aceitam apenas números.</span>
+                <span>🔤 Coluna <strong>Observação</strong> aceita livremente letras e números.</span>
+            </div>
+        </div>
+
+        <!-- Rodapé com Assinaturas Normais / Validação (Idêntico ao rodapé da folha física) -->
+        <section id="signatures-section" class="mt-6 bg-white rounded-xl border-2 border-amber-400 shadow-xs p-5 signature-box transition-all">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-5 border-b border-slate-200 pb-2.5">
+                <h2 class="text-sm font-bold uppercase tracking-wider text-slate-900 flex items-center gap-2">
+                    <i data-lucide="file-signature" class="w-4 h-4 text-amber-600 no-print no-capture"></i>
+                    Assinaturas Obrigatórias do Turno
+                </h2>
+                <span id="signatures-overall-badge" class="px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300 flex items-center gap-1.5 no-print no-capture">
+                    <i data-lucide="alert-circle" class="w-3.5 h-3.5"></i>
+                    Pendente: 2 assinaturas obrigatórias
+                </span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
+                <!-- Bloco 1: Assinatura do CCTV Operador -->
+                <div id="sig-card-cctv" class="border-2 border-amber-300 rounded-lg p-4 bg-amber-50/30 flex flex-col justify-between transition-colors">
+                    <div class="flex items-center justify-between mb-3">
+                        <span id="status-badge-cctv" class="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-700 no-print no-capture">Assinatura Obrigatória</span>
+                        <div class="flex items-center gap-2 no-print no-capture">
+                            <button type="button" onclick="clearSignature('cctv')" class="text-xs text-slate-500 hover:text-red-600 underline">Limpar</button>
+                            <button type="button" onclick="stampValidation('cctv')" class="text-xs bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded font-medium transition">
+                                Confirmar Assinatura
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Linha Clássica de Assinatura -->
+                    <div class="mt-4 mb-1">
+                        <input type="text"
+                            id="sig-input-cctv"
+                            placeholder="Digite aqui a assinatura do CCTV operador..."
+                            class="capture-hide-input signature-line-input w-full text-center font-signature text-2xl sm:text-3xl text-slate-900 bg-transparent border-0 border-b-2 border-slate-800 focus:border-amber-600 outline-none pb-1 px-2 placeholder:font-sans placeholder:text-xs placeholder:text-slate-400">
+                        <div id="sig-display-cctv" class="capture-value-text hidden w-full text-center font-signature text-3xl text-slate-900 border-b-2 border-slate-800 pb-1 px-2 min-h-[40px]"></div>
+                    </div>
+
+                    <div class="text-center mt-1.5">
+                        <span class="text-xs font-bold uppercase tracking-wide text-slate-800 block">Assinatura do Cctv operador *</span>
+                        <div class="mt-1 flex items-center justify-center gap-3 text-[11px] text-slate-600">
+                            <span>Operador: <strong id="sig-name-cctv" class="text-slate-900">______________________</strong></span>
+                            <span id="sig-time-cctv" class="font-mono text-emerald-700 font-bold"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bloco 2: Assinatura do Gerente -->
+                <div id="sig-card-manager" class="border-2 border-amber-300 rounded-lg p-4 bg-amber-50/30 flex flex-col justify-between transition-colors">
+                    <div class="flex items-center justify-between mb-3">
+                        <span id="status-badge-manager" class="text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-700 no-print no-capture">Assinatura Obrigatória</span>
+                        <div class="flex items-center gap-2 no-print no-capture">
+                            <button type="button" onclick="clearSignature('manager')" class="text-xs text-slate-500 hover:text-red-600 underline">Limpar</button>
+                            <button type="button" onclick="stampValidation('manager')" class="text-xs bg-slate-800 hover:bg-slate-900 text-white px-2.5 py-1 rounded font-medium transition">
+                                Confirmar Assinatura
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Linha Clássica de Assinatura -->
+                    <div class="mt-4 mb-1">
+                        <input type="text"
+                            id="sig-input-manager"
+                            placeholder="Digite aqui a assinatura do Gerente..."
+                            class="capture-hide-input signature-line-input w-full text-center font-signature text-2xl sm:text-3xl text-slate-900 bg-transparent border-0 border-b-2 border-slate-800 focus:border-amber-600 outline-none pb-1 px-2 placeholder:font-sans placeholder:text-xs placeholder:text-slate-400">
+                        <div id="sig-display-manager" class="capture-value-text hidden w-full text-center font-signature text-3xl text-slate-900 border-b-2 border-slate-800 pb-1 px-2 min-h-[40px]"></div>
+                    </div>
+
+                    <div class="text-center mt-1.5">
+                        <span class="text-xs font-bold uppercase tracking-wide text-slate-800 block">Assinatura do Gerente *</span>
+                        <div class="mt-1 flex items-center justify-center gap-3 text-[11px] text-slate-600">
+                            <span>Gerente: <strong id="sig-name-manager" class="text-slate-900">______________________</strong></span>
+                            <span id="sig-time-manager" class="font-mono text-emerald-700 font-bold"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+    </div><!-- Fim #capture-area -->
+
+    <!-- Modal: Adicionar Novo Produto -->
+    <div id="add-product-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <i data-lucide="package-plus" class="w-5 h-5 text-amber-600"></i>
+                    Adicionar Novo Produto
+                </h3>
+                <button type="button" onclick="closeAddProductModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form id="add-product-form" onsubmit="handleAddProduct(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Categoria *</label>
+                    <select id="new-prod-category" required class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:ring-2 focus:ring-amber-400 outline-none">
+                        <option value="Carne Seca">Carne Seca</option>
+                        <option value="Vinhos">Vinhos</option>
+                        <option value="Espumantes">Espumantes</option>
+                        <option value="Destilados & Licores">Destilados & Licores</option>
+                        <option value="Desodorantes Roll-On">Desodorantes Roll-On</option>
+                        <option value="Itens Adicionais" selected>Itens Adicionais</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Código (PLU) *</label>
+                    <input type="text" id="new-prod-code" required placeholder="Ex: 105432" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:ring-2 focus:ring-amber-400 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase text-slate-600 mb-1">Descrição do Produto *</label>
+                    <input type="text" id="new-prod-desc" required placeholder="Ex: VINHO TINTO RESERVA 750ML" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm uppercase focus:ring-2 focus:ring-amber-400 outline-none">
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeAddProductModal()" class="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 rounded-lg text-sm font-bold bg-amber-400 hover:bg-amber-500 text-slate-900 transition shadow-xs">Adicionar à Folha</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'inventario_cctv_loja_v3';
+
+        /**
+         * Lista completa fiel à folha física organizada nas 5 categorias principais
+         */
+        const DEFAULT_PRODUCTS = [
+            // 1. Carne Seca
+            { id: 'p-100869', category: 'Carne Seca', code: '100869', description: 'CARNE SECA - FRIBOI (15 X 1KG)' },
+            { id: 'p-100870', category: 'Carne Seca', code: '100870', description: 'CARNE SECA - SANODIA (15 X 1KG)' },
+            { id: 'p-100872', category: 'Carne Seca', code: '100872', description: 'CARNE SECA - SANODIA (30 X 500GM)' },
+            { id: 'p-100873', category: 'Carne Seca', code: '100873', description: 'CARNE SECA - FRIBOI (30 X 500GM)' },
+
+            // 2. Vinhos
+            { id: 'p-117674', category: 'Vinhos', code: '117674', description: 'VINHO BRANCO SILK SPICE 6X750ML' },
+            { id: 'p-110579', category: 'Vinhos', code: '110579', description: 'VINHO BRANCO MARIANA(6X750ML)' },
+            { id: 'p-104834', category: 'Vinhos', code: '104834', description: 'VINHO TINTO;PAPA FIGOS;6X750ML' },
+            { id: 'p-104912', category: 'Vinhos', code: '104912', description: 'RED WINE;NEDERBURG BARONE;6X750ML' },
+            { id: 'p-104838', category: 'Vinhos', code: '104838', description: 'VINHO TINTO;SOSSEGO;6X750ML' },
+            { id: 'p-115109', category: 'Vinhos', code: '115109', description: 'VINHO TINTO DOM MARTINHO 6X750ML' },
+            { id: 'p-118884', category: 'Vinhos', code: '118884', description: 'VT ANGRY DUCK CAB. SAUV. RESERVA 6X750ML' },
+            { id: 'p-110582', category: 'Vinhos', code: '110582', description: 'VINHO TINTO MARIANA(GRF2020-6X750ML)' },
+            { id: 'p-115147', category: 'Vinhos', code: '115147', description: 'VINHO TINTO SILKSPICE 6X750ML' },
+            { id: 'p-107039', category: 'Vinhos', code: '107039', description: 'VINHO TERRAS DO SADO MOSCATE;6X750ML' },
+            { id: 'p-108965', category: 'Vinhos', code: '108965', description: 'MARQUES DE BORBA TINTO(6X750ML)' },
+
+            // 3. Espumantes
+            { id: 'p-100137', category: 'Espumantes', code: '100137', description: 'ESPUMANTE JP CHENET ICE BRANCO 6X750ML' },
+            { id: 'p-109038', category: 'Espumantes', code: '109038', description: 'MOSCATO ROSE CAVATINA ESP DOCE;6X750ML' },
+            { id: 'p-109040', category: 'Espumantes', code: '109040', description: 'MOSCATO MORANGO CAVATINA;6X750ML' },
+            { id: 'p-109037', category: 'Espumantes', code: '109037', description: 'MOSCATO CAVATINA ESP DOCE;6X750ML' },
+
+            // 4. Destilados & Licores
+            { id: 'p-108154', category: 'Destilados & Licores', code: '108154', description: 'JAMESON ORIGINAL; 12X700ML' },
+            { id: 'p-104915', category: 'Destilados & Licores', code: '104915', description: 'LIQUOR;AMARULA;6X750ML' },
+            { id: 'p-120430', category: 'Destilados & Licores', code: '120430', description: 'GIN AMARULA' },
+            { id: 'p-108157', category: 'Destilados & Licores', code: '108157', description: 'BEEFEATER' },
+            { id: 'p-100282', category: 'Destilados & Licores', code: '100282', description: 'WHISKY RED LABEL' },
+            { id: 'p-100123', category: 'Destilados & Licores', code: '100123', description: 'WHISKY BLACK LABEL SCOTCH JW' },
+            { id: 'p-117753', category: 'Destilados & Licores', code: '117753', description: 'UISQUEJOHNNIE WALKER BLONDE 12X750ML' },
+            { id: 'p-120264', category: 'Destilados & Licores', code: '120264', description: 'UISQUES ESCOCES LABEL 5' },
+
+            // 5. Desodorantes Roll-On
+            { id: 'p-102591', category: 'Desodorantes Roll-On', code: '102591', description: 'ROLL ON DRY HOMEN, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-102592', category: 'Desodorantes Roll-On', code: '102592', description: 'ROLL ON DRY MULHER, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-102593', category: 'Desodorantes Roll-On', code: '102593', description: 'ROLL ON COOL KICK, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-102594', category: 'Desodorantes Roll-On', code: '102594', description: 'ROLL ON INVISIBLE BW, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-102595', category: 'Desodorantes Roll-On', code: '102595', description: 'ROLL ON PEARL BEAUTY, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-102601', category: 'Desodorantes Roll-On', code: '102601', description: 'ROLL ON INVISIBLE BW MULHER, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-104347', category: 'Desodorantes Roll-On', code: '104347', description: 'ROLL ON DEEP, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-104348', category: 'Desodorantes Roll-On', code: '104348', description: 'ROLL ON ENERGY FRESH, NIVEA, 5Ex6Px50ML' },
+            { id: 'p-105623', category: 'Desodorantes Roll-On', code: '105623', description: 'ROLL ON NATURAL, NIVEA, 5Ex6Px50 ML' },
+            { id: 'p-114467', category: 'Desodorantes Roll-On', code: '114467', description: 'ROLL ON DEEP ESPRESSO, NIVEA, 5Ex6Px50ML' },
+            { id: 'p-102650', category: 'Desodorantes Roll-On', code: '102650', description: 'NIVEA DEO ROLLON FRESH ACTIVE INFINI FRESH' }
+        ];
+
+        let appState = {
+            date: new Date().toISOString().split('T')[0],
+            storeUnit: '',
+            cctvOperator: '',
+            storeManager: '',
+            products: [...DEFAULT_PRODUCTS],
+            entries: {},
+            signatures: {
+                cctv: { text: '', stampedAt: '' },
+                manager: { text: '', stampedAt: '' }
+            }
+        };
+
+        function loadState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    appState = {
+                        ...appState,
+                        ...parsed,
+                        products: Array.isArray(parsed.products) && parsed.products.length > 0 ? parsed.products : [...DEFAULT_PRODUCTS],
+                        entries: parsed.entries || {},
+                        signatures: parsed.signatures || {
+                            cctv: { text: '', stampedAt: '' },
+                            manager: { text: '', stampedAt: '' }
+                        }
+                    };
+                }
+            } catch (e) {
+                console.error('Erro ao carregar dados salvos:', e);
+            }
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+            } catch (e) {
+                console.error('Erro ao salvar estado:', e);
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const isWarn = type === 'warning';
+            toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-xs sm:text-sm font-semibold transition-all ${
+                isWarn
+                    ? 'bg-red-600 text-white border-red-700'
+                    : 'bg-slate-900 text-white border-amber-400'
+            }`;
+            toast.innerHTML = `
+                <i data-lucide="${isWarn ? 'alert-triangle' : 'check-circle-2'}" class="w-4 h-4 ${isWarn ? 'text-white' : 'text-amber-400'} shrink-0"></i>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            lucide.createIcons();
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(8px)';
+                setTimeout(() => toast.remove(), 250);
+            }, 3400);
+        }
+
+        function openConfirmModal(title, message, onConfirm) {
+            const modal = document.getElementById('confirm-modal');
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            const okBtn = document.getElementById('confirm-ok-btn');
+            const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+            const cleanup = () => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+            };
+
+            cancelBtn.onclick = cleanup;
+            okBtn.onclick = () => {
+                cleanup();
+                onConfirm();
+            };
+        }
+
+        function calculateDiffInfo(finalVal, sysVal) {
+            const hasFinal = finalVal !== '' && finalVal !== null && finalVal !== undefined && !isNaN(Number(finalVal));
+            const hasSys = sysVal !== '' && sysVal !== null && sysVal !== undefined && !isNaN(Number(sysVal));
+
+            if (!hasFinal || !hasSys) {
+                return { status: 'pending', text: '—', value: null };
+            }
+
+            const diff = Number(finalVal) - Number(sysVal);
+            if (diff === 0) {
+                return { status: 'ok', text: '0 (OK)', value: 0 };
+            }
+            const formatted = diff > 0 ? `+${diff}` : `${diff}`;
+            return { status: 'diff', text: formatted, value: diff };
+        }
+
+        function updateStats() {
+            let okCount = 0;
+            let diffCount = 0;
+            let auditedCount = 0;
+            const totalItems = appState.products.length;
+
+            appState.products.forEach(p => {
+                const entry = appState.entries[p.id] || {};
+                const info = calculateDiffInfo(entry.final, entry.sistema);
+                if (info.status === 'ok') {
+                    okCount++;
+                    auditedCount++;
+                } else if (info.status === 'diff') {
+                    diffCount++;
+                    auditedCount++;
+                }
+            });
+
+            const statOkEl = document.getElementById('stat-ok');
+            const statDiffEl = document.getElementById('stat-diff');
+            const progressBarEl = document.getElementById('audit-progress-bar');
+            const progressTextEl = document.getElementById('audit-progress-text');
+
+            if (statOkEl) statOkEl.textContent = okCount;
+            if (statDiffEl) statDiffEl.textContent = diffCount;
+
+            const pct = totalItems > 0 ? Math.round((auditedCount / totalItems) * 100) : 0;
+            if (progressBarEl) progressBarEl.style.width = `${pct}%`;
+            if (progressTextEl) progressTextEl.textContent = `${auditedCount}/${totalItems} (${pct}%)`;
+        }
+
+        function updateCategoryFilterOptions() {
+            const select = document.getElementById('category-filter');
+            if (!select) return;
+            const currentVal = select.value;
+            const categories = [...new Set(appState.products.map(p => p.category))];
+
+            select.innerHTML = `<option value="ALL">Todas as Categorias (${appState.products.length} itens)</option>`;
+            categories.forEach(cat => {
+                const count = appState.products.filter(p => p.category === cat).length;
+                const opt = document.createElement('option');
+                opt.value = cat;
+                opt.textContent = `${cat} (${count})`;
+                select.appendChild(opt);
+            });
+
+            if (categories.includes(currentVal) || currentVal === 'ALL') {
+                select.value = currentVal;
+            }
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('clear-search-btn').classList.add('hidden');
+            renderTable();
+        }
+
+        function handleCellChange(productId, field, value) {
+            if (!appState.entries[productId]) {
+                appState.entries[productId] = {};
+            }
+            appState.entries[productId][field] = value;
+
+            if (field === 'final' || field === 'sistema') {
+                const entry = appState.entries[productId];
+                const diffCell = document.getElementById(`diff-${productId}`);
+                if (diffCell) {
+                    const info = calculateDiffInfo(entry.final, entry.sistema);
+                    diffCell.textContent = info.text;
+                    diffCell.className = `py-1.5 px-2 border-r border-slate-300 text-center font-mono text-xs font-bold ${
+                        info.status === 'ok'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : info.status === 'diff'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-slate-50 text-slate-400'
+                    }`;
+                }
+                updateStats();
+            }
+
+            saveState();
+        }
+
+        function handleEnterNavigation(e, rowIndex, colKey) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const nextInput = document.querySelector(`[data-row="${rowIndex + 1}"][data-col="${colKey}"]`);
+                if (nextInput) {
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('inventory-tbody');
+            const searchInput = document.getElementById('search-input');
+            const clearBtn = document.getElementById('clear-search-btn');
+            const query = searchInput.value.trim().toLowerCase();
+            const catFilter = document.getElementById('category-filter').value;
+
+            if (query) {
+                clearBtn.classList.remove('hidden');
+            } else {
+                clearBtn.classList.add('hidden');
+            }
+
+            const filtered = appState.products.filter(p => {
+                const matchesCat = catFilter === 'ALL' || p.category === catFilter;
+                const matchesQuery = !query ||
+                    p.code.toLowerCase().includes(query) ||
+                    p.description.toLowerCase().includes(query);
+                return matchesCat && matchesQuery;
+            });
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="10" class="py-10 text-center text-slate-500">
+                            Nenhum produto encontrado para o filtro aplicado.
+                        </td>
+                    </tr>
+                `;
+                updateStats();
+                return;
+            }
+
+            let html = '';
+            let lastCategory = null;
+
+            filtered.forEach((prod, idx) => {
+                if (prod.category !== lastCategory) {
+                    lastCategory = prod.category;
+                    html += `
+                        <tr class="category-row bg-slate-800 text-amber-300">
+                            <td colspan="10" class="py-1.5 px-3 text-xs font-bold uppercase tracking-wider">
+                                ${prod.category}
+                            </td>
+                        </tr>
+                    `;
+                }
+
+                const e = appState.entries[prod.id] || {};
+                const diffInfo = calculateDiffInfo(e.final, e.sistema);
+                const diffClasses = diffInfo.status === 'ok'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : diffInfo.status === 'diff'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-slate-50 text-slate-400';
+
+                const numInputClass = 'capture-hide-input w-full text-center font-mono text-sm font-semibold text-slate-900 bg-transparent border border-transparent hover:border-slate-300 focus:border-amber-500 focus:bg-amber-50/60 rounded py-1 px-1 outline-none transition';
+                const numDisplayClass = 'capture-value-text hidden w-full text-center font-mono text-xs font-bold text-slate-900 py-1';
+
+                html += `
+                    <tr class="hover:bg-amber-50/40 transition-colors">
+                        <td class="py-1.5 px-3 font-mono text-xs font-bold text-slate-700 border-r border-slate-200 sticky left-0 bg-white z-10">
+                            ${prod.code}
+                        </td>
+                        <td class="py-1.5 px-3 text-xs font-semibold text-slate-900 border-r border-slate-200">
+                            <div class="flex items-center justify-between gap-2">
+                                <span>${prod.description}</span>
+                                ${prod.custom ? `<button type="button" onclick="removeCustomProduct('${prod.id}')" title="Remover item" class="text-slate-400 hover:text-red-600 no-print no-capture"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>` : ''}
+                            </div>
+                        </td>
+                        <td class="py-1 px-1.5 border-r border-slate-200 bg-amber-50/40">
+                            <input type="number" inputmode="numeric" min="0" step="1"
+                                value="${e.inicial ?? ''}"
+                                data-row="${idx}" data-col="inicial"
+                                onkeydown="handleEnterNavigation(event, ${idx}, 'inicial')"
+                                oninput="handleCellChange('${prod.id}', 'inicial', this.value)"
+                                class="${numInputClass}" placeholder="0">
+                            <span class="${numDisplayClass}">${e.inicial !== undefined && e.inicial !== '' ? e.inicial : ''}</span>
+                        </td>
+                        <td class="py-1 px-1.5 border-r border-slate-200">
+                            <input type="number" inputmode="numeric" min="0" step="1"
+                                value="${e.h08 ?? ''}"
+                                data-row="${idx}" data-col="h08"
+                                onkeydown="handleEnterNavigation(event, ${idx}, 'h08')"
+                                oninput="handleCellChange('${prod.id}', 'h08', this.value)"
+                                class="${numInputClass}" placeholder="-">
+                            <span class="${numDisplayClass}">${e.h08 !== undefined && e.h08 !== '' ? e.h08 : ''}</span>
+                        </td>
+                        <td class="py-1 px-1.5 border-r border-slate-200">
+                            <input type="number" inputmode="numeric" min="0" step="1"
+                                value="${e.h14 ?? ''}"
+                                data-row="${idx}" data-col="h14"
+                                onkeydown="handleEnterNavigation(event, ${idx}, 'h14')"
+                                oninput="handleCellChange('${prod.id}', 'h14', this.value)"
+                                class="${numInputClass}" placeholder="-">
+                            <span class="${numDisplayClass}">${e.h14 !== undefined && e.h14 !== '' ? e.h14 : ''}</span>
+                        </td>
+                        <td class="py-1 px-1.5 border-r border-slate-200">
+                            <input type="number" inputmode="numeric" min="0" step="1"
+                                value="${e.h20 ?? ''}"
+                                data-row="${idx}" data-col="h20"
+                                onkeydown="handleEnterNavigation(event, ${idx}, 'h20')"
+                                oninput="handleCellChange('${prod.id}', 'h20', this.value)"
+                                class="${numInputClass}" placeholder="-">
+                            <span class="${numDisplayClass}">${e.h20 !== undefined && e.h20 !== '' ? e.h20 : ''}</span>
+                        </td>
+                        <td class="py-1 px-1.5 border-r border-slate-200 bg-amber-50/40">
+                            <input type="number" inputmode="numeric" min="0" step="1"
+                                value="${e.final ?? ''}"
+                                data-row="${idx}" data-col="final"
+                                onkeydown="handleEnterNavigation(event, ${idx}, 'final')"
+                                oninput="handleCellChange('${prod.id}', 'final', this.value)"
+                                class="${numInputClass}" placeholder="0">
+                            <span class="${numDisplayClass}">${e.final !== undefined && e.final !== '' ? e.final : ''}</span>
+                        </td>
+                        <td class="py-1 px-1.5 border-r border-slate-200 bg-amber-50/40">
+                            <input type="number" inputmode="numeric" min="0" step="1"
+                                value="${e.sistema ?? ''}"
+                                data-row="${idx}" data-col="sistema"
+                                onkeydown="handleEnterNavigation(event, ${idx}, 'sistema')"
+                                oninput="handleCellChange('${prod.id}', 'sistema', this.value)"
+                                class="${numInputClass}" placeholder="0">
+                            <span class="${numDisplayClass}">${e.sistema !== undefined && e.sistema !== '' ? e.sistema : ''}</span>
+                        </td>
+                        <td id="diff-${prod.id}" class="py-1.5 px-2 border-r border-slate-300 text-center font-mono text-xs font-bold ${diffClasses}">
+                            ${diffInfo.text}
+                        </td>
+                        <td class="py-1 px-2">
+                            <input type="text"
+                                value="${(e.obs ?? '').replace(/"/g, '&quot;')}"
+                                data-row="${idx}" data-col="obs"
+                                onkeydown="handleEnterNavigation(event, ${idx}, 'obs')"
+                                oninput="handleCellChange('${prod.id}', 'obs', this.value)"
+                                placeholder="Obs. (letras ou números)..."
+                                class="capture-hide-input w-full text-xs text-slate-800 bg-transparent border border-transparent hover:border-slate-300 focus:border-amber-500 focus:bg-amber-50/60 rounded py-1 px-1.5 outline-none transition">
+                            <span class="capture-value-text hidden text-xs text-slate-900 font-medium break-words">${(e.obs ?? '').replace(/</g, '&lt;')}</span>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+            updateStats();
+            lucide.createIcons();
+        }
+
+        function openAddProductModal() {
+            const modal = document.getElementById('add-product-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.getElementById('new-prod-code').focus();
+        }
+
+        function closeAddProductModal() {
+            const modal = document.getElementById('add-product-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.getElementById('add-product-form').reset();
+        }
+
+        function handleAddProduct(e) {
+            e.preventDefault();
+            const category = document.getElementById('new-prod-category').value;
+            const code = document.getElementById('new-prod-code').value.trim();
+            const description = document.getElementById('new-prod-desc').value.trim().toUpperCase();
+
+            if (!code || !description) return;
+
+            const newProd = {
+                id: 'custom-' + Date.now(),
+                category,
+                code,
+                description,
+                custom: true
+            };
+
+            appState.products.push(newProd);
+            saveState();
+            updateCategoryFilterOptions();
+            renderTable();
+            closeAddProductModal();
+            showToast(`Produto ${code} adicionado à folha!`);
+        }
+
+        function removeCustomProduct(id) {
+            openConfirmModal(
+                'Remover Produto Adicional',
+                'Deseja remover este produto adicionado manualmente da folha?',
+                () => {
+                    appState.products = appState.products.filter(p => p.id !== id);
+                    delete appState.entries[id];
+                    saveState();
+                    updateCategoryFilterOptions();
+                    renderTable();
+                    showToast('Produto removido da folha.');
+                }
+            );
+        }
+
+        function confirmClearQuantities() {
+            openConfirmModal(
+                'Limpar Contagens do Turno',
+                'Tem certeza que deseja zerar todas as quantidades digitadas e assinaturas deste turno? A lista de produtos será mantida.',
+                () => {
+                    appState.entries = {};
+                    clearSignature('cctv');
+                    clearSignature('manager');
+                    saveState();
+                    renderTable();
+                    showToast('Contagens e assinaturas limpas para um novo turno.');
+                }
+            );
+        }
+
+        function checkMandatorySignatures() {
+            const cctvName = (appState.cctvOperator || '').trim();
+            const managerName = (appState.storeManager || '').trim();
+            const cctvSigned = Boolean((appState.signatures.cctv?.text || '').trim());
+            const managerSigned = Boolean((appState.signatures.manager?.text || '').trim());
+
+            const boxCctv = document.getElementById('meta-box-cctv');
+            const boxManager = document.getElementById('meta-box-manager');
+            boxCctv.classList.remove('border-red-500', 'bg-red-50');
+            boxManager.classList.remove('border-red-500', 'bg-red-50');
+
+            if (!cctvName || !managerName) {
+                const missingNames = [];
+                if (!cctvName) {
+                    missingNames.push('Operador CCTV');
+                    boxCctv.classList.add('border-red-500', 'bg-red-50');
+                }
+                if (!managerName) {
+                    missingNames.push('Gerente Responsável');
+                    boxManager.classList.add('border-red-500', 'bg-red-50');
+                }
+
+                const targetInput = !cctvName
+                    ? document.getElementById('cctv-operator')
+                    : document.getElementById('store-manager');
+
+                targetInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                targetInput.focus();
+                showToast(`Preencha o nome obrigatório: ${missingNames.join(' e ')}!`, 'warning');
+                return false;
+            }
+
+            if (!cctvSigned || !managerSigned) {
+                const missing = [];
+                if (!cctvSigned) {
+                    missing.push('Assinatura do CCTV Operador');
+                    document.getElementById('sig-card-cctv').classList.add('border-red-500', 'bg-red-50');
+                }
+                if (!managerSigned) {
+                    missing.push('Assinatura do Gerente');
+                    document.getElementById('sig-card-manager').classList.add('border-red-500', 'bg-red-50');
+                }
+
+                const section = document.getElementById('signatures-section');
+                section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                section.classList.add('ring-4', 'ring-red-400');
+                setTimeout(() => section.classList.remove('ring-4', 'ring-red-400'), 2200);
+
+                const targetSigInput = !cctvSigned
+                    ? document.getElementById('sig-input-cctv')
+                    : document.getElementById('sig-input-manager');
+                targetSigInput.focus();
+
+                showToast(`Preencha o campo obrigatório: ${missing.join(' e ')}!`, 'warning');
+                return false;
+            }
+            return true;
+        }
+
+        function validateAndExportCSV() {
+            if (!checkMandatorySignatures()) return;
+            exportToCSV();
+        }
+
+        function validateAndPrint() {
+            if (!checkMandatorySignatures()) return;
+            window.print();
+        }
+
+        /**
+         * CAPTURA DE SCREENSHOT (PNG) E GERAÇÃO DE PDF (ESTILO WOOQER)
+         */
+        let lastCapturedCanvas = null;
+        let lastCapturedDataUrl = '';
+
+        function toggleLoadingOverlay(show, title = 'Gerando Evidência da Folha...', subtitle = 'Capturando todos os itens, horários e assinaturas em alta resolução.') {
+            const overlay = document.getElementById('loading-overlay');
+            document.getElementById('loading-title').textContent = title;
+            document.getElementById('loading-subtitle').textContent = subtitle;
+            if (show) {
+                overlay.classList.remove('hidden');
+                overlay.classList.add('flex');
+            } else {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }
+        }
+
+        /**
+         * Renderiza a folha inteira em Canvas usando html2canvas (scale: 2)
+         */
+        async function captureFullSheetCanvas() {
+            if (typeof html2canvas === 'undefined') {
+                showToast('Biblioteca de captura ainda carregando. Tente novamente em instantes.', 'warning');
+                return null;
+            }
+
+            // Reseta filtros temporariamente se houver busca ativa para garantir folha completa
+            const searchInput = document.getElementById('search-input');
+            const catFilter = document.getElementById('category-filter');
+            const prevSearch = searchInput.value;
+            const prevCat = catFilter.value;
+
+            if (prevSearch || prevCat !== 'ALL') {
+                searchInput.value = '';
+                catFilter.value = 'ALL';
+            }
+
+            // Re-renderiza garantindo textos estáticos atualizados para a captura limpa
+            renderTable();
+            document.getElementById('sig-display-cctv').textContent = appState.signatures.cctv?.text || '';
+            document.getElementById('sig-display-manager').textContent = appState.signatures.manager?.text || '';
+
+            document.body.classList.add('capturing-sheet');
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            try {
+                const captureTarget = document.getElementById('capture-area');
+                const canvas = await html2canvas(captureTarget, {
+                    scale: 2,
+                    useCORS: true,
+                    backgroundColor: '#fefce8',
+                    logging: false,
+                    windowWidth: 1280
+                });
+
+                lastCapturedCanvas = canvas;
+                lastCapturedDataUrl = canvas.toDataURL('image/png');
+                return canvas;
+            } finally {
+                document.body.classList.remove('capturing-sheet');
+                if (prevSearch || prevCat !== 'ALL') {
+                    searchInput.value = prevSearch;
+                    catFilter.value = prevCat;
+                    renderTable();
+                }
+            }
+        }
+
+        /**
+         * 1. Gerar e Baixar Screenshot PNG em Alta Resolução + Abrir Modal de Prévia/Envio
+         */
+        async function validateAndScreenshot() {
+            if (!checkMandatorySignatures()) return;
+
+            toggleLoadingOverlay(true, 'Capturando Screenshot (PNG)...', 'Preparando imagem nítida da folha completa para WhatsApp e Facebook.');
+            try {
+                const canvas = await captureFullSheetCanvas();
+                if (!canvas) return;
+
+                downloadLastScreenshot();
+                prepareShareModalData();
+                openShareModal();
+                showToast('Screenshot PNG salvo! Escolha abaixo onde deseja compartilhar.');
+            } catch (err) {
+                console.error('Erro ao gerar screenshot:', err);
+                showToast('Não foi possível gerar o screenshot.', 'warning');
+            } finally {
+                toggleLoadingOverlay(false);
+            }
+        }
+
+        function downloadLastScreenshot() {
+            if (!lastCapturedDataUrl) return;
+            const link = document.createElement('a');
+            link.href = lastCapturedDataUrl;
+            link.download = `Inventario_CCTV_${appState.date}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        /**
+         * 2. Gerar e Baixar PDF Direto (A4 Paisagem) + Opção de Envio
+         */
+        async function buildPDFDocument() {
+            const canvas = await captureFullSheetCanvas();
+            if (!canvas) return null;
+
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF({
+                orientation: 'landscape',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+
+            // Fundo amarelo suave fiel à folha física em toda a página A4
+            pdf.setFillColor(254, 252, 232);
+            pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+
+            const margin = 5;
+            const usableWidth = pageWidth - margin * 2;
+            const usableHeight = pageHeight - margin * 2;
+
+            const imgData = canvas.toDataURL('image/png');
+            const imgRatio = canvas.width / canvas.height;
+
+            let renderWidth = usableWidth;
+            let renderHeight = renderWidth / imgRatio;
+
+            if (renderHeight > usableHeight) {
+                renderHeight = usableHeight;
+                renderWidth = renderHeight * imgRatio;
+            }
+
+            const offsetX = (pageWidth - renderWidth) / 2;
+            const offsetY = (pageHeight - renderHeight) / 2;
+
+            pdf.addImage(imgData, 'PNG', offsetX, offsetY, renderWidth, renderHeight, undefined, 'FAST');
+            return pdf;
+        }
+
+        async function validateAndGeneratePDF() {
+            if (!checkMandatorySignatures()) return;
+
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                showToast('Biblioteca PDF ainda carregando. Tente novamente.', 'warning');
+                return;
+            }
+
+            toggleLoadingOverlay(true, 'Gerando PDF (A4 Paisagem)...', 'Formatando folha completa com assinaturas em documento PDF.');
+            try {
+                const pdf = await buildPDFDocument();
+                if (!pdf) return;
+
+                pdf.save(`Inventario_CCTV_${appState.date}.pdf`);
+                prepareShareModalData();
+                openShareModal();
+                showToast('Arquivo PDF (A4 Paisagem) gerado e baixado com sucesso!');
+            } catch (err) {
+                console.error('Erro ao gerar PDF:', err);
+                showToast('Erro ao gerar o arquivo PDF.', 'warning');
+            } finally {
+                toggleLoadingOverlay(false);
+            }
+        }
+
+        /**
+         * 3. Compartilhamento Rápido Estilo Wooqer (Web Share API + WhatsApp / Facebook)
+         */
+        function buildOperationalSummary() {
+            let okCount = 0;
+            let diffItems = [];
+
+            appState.products.forEach(prod => {
+                const entry = appState.entries[prod.id] || {};
+                const info = calculateDiffInfo(entry.final, entry.sistema);
+                if (info.status === 'ok') okCount++;
+                if (info.status === 'diff') {
+                    diffItems.push(`• ${prod.code} (${prod.description}): Dif. ${info.text}${entry.obs ? ` [Obs: ${entry.obs}]` : ''}`);
+                }
+            });
+
+            const lines = [
+                `📋 *CONTROLE DE INVENTÁRIO DIÁRIO - CCTV / LOJA*`,
+                `📅 *Data:* ${appState.date}`,
+                appState.storeUnit ? `🏪 *Loja/Unidade:* ${appState.storeUnit}` : null,
+                `🎥 *Operador CCTV:* ${appState.cctvOperator}`,
+                `👔 *Gerente:* ${appState.storeManager}`,
+                `✅ *Itens Conferidos OK:* ${okCount}`,
+                `⚠️ *Divergências:* ${diffItems.length}`
+            ].filter(Boolean);
+
+            if (diffItems.length > 0) {
+                lines.push('', '*Detalhes das Divergências:*', ...diffItems.slice(0, 10));
+                if (diffItems.length > 10) {
+                    lines.push(`...e mais ${diffItems.length - 10} item(ns).`);
+                }
+            }
+
+            lines.push('', '📎 _Anexo: Folha de Inventário assinada (PNG/PDF)._');
+            return lines.join('\n');
+        }
+
+        function prepareShareModalData() {
+            const summaryText = buildOperationalSummary();
+            if (lastCapturedDataUrl) {
+                document.getElementById('share-preview-img').src = lastCapturedDataUrl;
+            }
+            document.getElementById('share-summary-text').value = summaryText;
+            document.getElementById('whatsapp-web-link').href = `https://wa.me/?text=${encodeURIComponent(summaryText)}`;
+            document.getElementById('facebook-share-link').href = `https://www.facebook.com/sharer/sharer.php?quote=${encodeURIComponent(summaryText)}`;
+        }
+
+        async function validateAndShare() {
+            if (!checkMandatorySignatures()) return;
+
+            toggleLoadingOverlay(true, 'Preparando Envio (WhatsApp / Facebook)...', 'Gerando captura da folha assinada e resumo do turno.');
+            try {
+                const canvas = await captureFullSheetCanvas();
+                if (!canvas) return;
+
+                prepareShareModalData();
+                const summaryText = document.getElementById('share-summary-text').value;
+
+                // Tenta compartilhamento nativo imediato em dispositivos móveis / navegadores compatíveis
+                const sharedDirectly = await attemptDirectFileShare(canvas, summaryText);
+                if (!sharedDirectly) {
+                    downloadLastScreenshot();
+                    openShareModal();
+                    showToast('Imagem baixada! Escolha WhatsApp, Facebook ou copie o resumo.', 'success');
+                }
+            } catch (err) {
+                console.error('Erro ao preparar compartilhamento:', err);
+                showToast('Erro ao preparar compartilhamento.', 'warning');
+            } finally {
+                toggleLoadingOverlay(false);
+            }
+        }
+
+        async function attemptDirectFileShare(canvas, summaryText) {
+            if (!navigator.share || !navigator.canShare) return false;
+
+            return new Promise((resolve) => {
+                canvas.toBlob(async (blob) => {
+                    if (!blob) {
+                        resolve(false);
+                        return;
+                    }
+                    const file = new File([blob], `Inventario_CCTV_${appState.date}.png`, { type: 'image/png' });
+                    const shareData = {
+                        title: `Inventário Diário CCTV - ${appState.date}`,
+                        text: summaryText,
+                        files: [file]
+                    };
+
+                    if (navigator.canShare(shareData)) {
+                        try {
+                            await navigator.share(shareData);
+                            showToast('Folha compartilhada com sucesso!');
+                            resolve(true);
+                        } catch (shareErr) {
+                            resolve(false);
+                        }
+                    } else {
+                        resolve(false);
+                    }
+                }, 'image/png');
+            });
+        }
+
+        async function triggerNativeShare(format = 'image') {
+            if (!checkMandatorySignatures()) return;
+            const summaryText = document.getElementById('share-summary-text').value || buildOperationalSummary();
+
+            if (format === 'pdf') {
+                if (!window.jspdf || !window.jspdf.jsPDF) {
+                    showToast('Biblioteca PDF indisponível.', 'warning');
+                    return;
+                }
+                toggleLoadingOverlay(true, 'Preparando PDF para envio...', 'Gerando arquivo PDF da folha assinada.');
+                try {
+                    const pdf = await buildPDFDocument();
+                    if (!pdf) return;
+                    const pdfBlob = pdf.output('blob');
+                    const pdfFile = new File([pdfBlob], `Inventario_CCTV_${appState.date}.pdf`, { type: 'application/pdf' });
+
+                    if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+                        await navigator.share({
+                            title: `Inventário Diário CCTV (PDF) - ${appState.date}`,
+                            text: summaryText,
+                            files: [pdfFile]
+                        });
+                        showToast('PDF compartilhado com sucesso!');
+                    } else {
+                        pdf.save(`Inventario_CCTV_${appState.date}.pdf`);
+                        showToast('PDF baixado! Anexe o arquivo diretamente no WhatsApp ou app desejado.', 'warning');
+                    }
+                } finally {
+                    toggleLoadingOverlay(false);
+                }
+                return;
+            }
+
+            if (!lastCapturedCanvas) return;
+            const ok = await attemptDirectFileShare(lastCapturedCanvas, summaryText);
+            if (!ok) {
+                downloadLastScreenshot();
+                showToast('Compartilhamento direto indisponível neste navegador. A imagem PNG foi baixada para anexar manualmente!', 'warning');
+            }
+        }
+
+        function openShareModal() {
+            const modal = document.getElementById('share-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        }
+
+        function closeShareModal() {
+            const modal = document.getElementById('share-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function copyShareSummary() {
+            const textarea = document.getElementById('share-summary-text');
+            textarea.select();
+            textarea.setSelectionRange(0, 99999);
+            document.execCommand('copy');
+            showToast('Resumo operacional copiado para a área de transferência!');
+        }
+
+        /**
+         * Atualiza os indicadores visuais de obrigatoriedade das assinaturas
+         */
+        function updateSignaturesUI() {
+            const roles = ['cctv', 'manager'];
+            let pendingCount = 0;
+
+            roles.forEach(role => {
+                const isSigned = Boolean((appState.signatures[role]?.text || '').trim());
+                const card = document.getElementById(`sig-card-${role}`);
+                const badge = document.getElementById(`status-badge-${role}`);
+
+                card.classList.remove('border-red-500', 'bg-red-50');
+
+                if (isSigned) {
+                    card.classList.remove('border-amber-300', 'bg-amber-50/30');
+                    card.classList.add('border-emerald-400', 'bg-emerald-50/30');
+                    badge.textContent = 'Assinatura Preenchida ✔';
+                    badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 no-print no-capture';
+                } else {
+                    pendingCount++;
+                    card.classList.add('border-amber-300', 'bg-amber-50/30');
+                    card.classList.remove('border-emerald-400', 'bg-emerald-50/30');
+                    badge.textContent = 'Assinatura Obrigatória';
+                    badge.className = 'text-[10px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-700 no-print no-capture';
+                }
+            });
+
+            const overallBadge = document.getElementById('signatures-overall-badge');
+            const section = document.getElementById('signatures-section');
+
+            if (pendingCount === 0) {
+                overallBadge.innerHTML = `<i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Todas as assinaturas preenchidas`;
+                overallBadge.className = 'px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 no-print no-capture';
+                section.classList.remove('border-amber-400');
+                section.classList.add('border-emerald-500');
+            } else {
+                overallBadge.innerHTML = `<i data-lucide="alert-circle" class="w-3.5 h-3.5"></i> Pendente: ${pendingCount} assinatura${pendingCount > 1 ? 's' : ''} obrigatória${pendingCount > 1 ? 's' : ''}`;
+                overallBadge.className = 'px-2.5 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300 flex items-center gap-1.5 no-print no-capture';
+                section.classList.add('border-amber-400');
+                section.classList.remove('border-emerald-500');
+            }
+
+            lucide.createIcons();
+        }
+
+        /**
+         * GESTÃO DO MODO DE ASSINATURA NORMAL (CCTV & GERENTE)
+         */
+        function initSignatureInputs() {
+            ['cctv', 'manager'].forEach(role => {
+                const input = document.getElementById(`sig-input-${role}`);
+                if (!appState.signatures[role]) {
+                    appState.signatures[role] = { text: '', stampedAt: '' };
+                }
+                input.value = appState.signatures[role].text || '';
+
+                input.addEventListener('input', (e) => {
+                    const val = e.target.value;
+                    appState.signatures[role].text = val;
+
+                    if (val.trim() && !appState.signatures[role].stampedAt) {
+                        const now = new Date();
+                        const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                        const dateStr = now.toLocaleDateString('pt-BR');
+                        const stamp = `✔ Assinado em ${dateStr} às ${timeStr}`;
+                        appState.signatures[role].stampedAt = stamp;
+                        document.getElementById(`sig-time-${role}`).textContent = stamp;
+                    } else if (!val.trim()) {
+                        appState.signatures[role].stampedAt = '';
+                        document.getElementById(`sig-time-${role}`).textContent = '';
+                    }
+
+                    updateSignaturesUI();
+                    saveState();
+                });
+            });
+        }
+
+        function clearSignature(role) {
+            const input = document.getElementById(`sig-input-${role}`);
+            if (input) input.value = '';
+            appState.signatures[role] = { text: '', stampedAt: '' };
+            document.getElementById(`sig-time-${role}`).textContent = '';
+            updateSignaturesUI();
+            saveState();
+        }
+
+        function stampValidation(role) {
+            const text = (appState.signatures[role]?.text || '').trim();
+            if (!text) {
+                const input = document.getElementById(`sig-input-${role}`);
+                if (input) input.focus();
+                showToast('Digite a assinatura sobre a linha antes de confirmar!', 'warning');
+                return;
+            }
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            const dateStr = now.toLocaleDateString('pt-BR');
+            const stamp = `✔ Confirmado em ${dateStr} às ${timeStr}`;
+
+            appState.signatures[role].stampedAt = stamp;
+            document.getElementById(`sig-time-${role}`).textContent = stamp;
+            updateSignaturesUI();
+            saveState();
+            showToast(role === 'cctv' ? 'Assinatura do Operador CCTV confirmada!' : 'Assinatura do Gerente confirmada!');
+        }
+
+        /**
+         * Exporta os dados completos para planilha CSV compatível com Excel
+         */
+        function exportToCSV() {
+            const headers = [
+                'Categoria',
+                'Codigo',
+                'Descricao do Produto',
+                'Qtd Inicial Loja',
+                '08:00h',
+                '14:00h',
+                '20:00h',
+                'Qtd Final Loja',
+                'Qtd Sistema',
+                'Diferenca',
+                'Observacao'
+            ];
+
+            const rows = [
+                [`CONTROLE DE INVENTARIO DIARIO - DATA: ${appState.date} | LOJA: ${appState.storeUnit || 'N/A'} | OPERADOR CCTV: ${appState.cctvOperator || 'N/A'} | GERENTE: ${appState.storeManager || 'N/A'}`],
+                headers
+            ];
+
+            appState.products.forEach(prod => {
+                const e = appState.entries[prod.id] || {};
+                const hasFinal = e.final !== '' && e.final !== undefined;
+                const hasSys = e.sistema !== '' && e.sistema !== undefined;
+                const diff = (hasFinal && hasSys) ? (Number(e.final) - Number(e.sistema)) : '';
+
+                rows.push([
+                    `"${prod.category}"`,
+                    `"${prod.code}"`,
+                    `"${prod.description.replace(/"/g, '""')}"`,
+                    e.inicial ?? '',
+                    e.h08 ?? '',
+                    e.h14 ?? '',
+                    e.h20 ?? '',
+                    e.final ?? '',
+                    e.sistema ?? '',
+                    diff,
+                    `"${(e.obs ?? '').replace(/"/g, '""')}"`
+                ]);
+            });
+
+            // BOM UTF-8 para abrir com acentuação perfeita no Excel
+            const csvContent = '\uFEFF' + rows.map(r => r.join(';')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `Inventario_CCTV_Loja_${appState.date}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showToast('Arquivo CSV exportado com sucesso!');
+        }
+
+        /**
+         * Sincroniza inputs do cabeçalho com estado e rodapé de assinaturas
+         */
+        function bindHeaderInputs() {
+            const dateInput = document.getElementById('shift-date');
+            const storeInput = document.getElementById('store-unit');
+            const cctvInput = document.getElementById('cctv-operator');
+            const managerInput = document.getElementById('store-manager');
+
+            dateInput.value = appState.date;
+            storeInput.value = appState.storeUnit || '';
+            cctvInput.value = appState.cctvOperator;
+            managerInput.value = appState.storeManager;
+
+            document.getElementById('sig-name-cctv').textContent = appState.cctvOperator || '______________________';
+            document.getElementById('sig-name-manager').textContent = appState.storeManager || '______________________';
+
+            if (appState.signatures.cctv?.stampedAt) {
+                document.getElementById('sig-time-cctv').textContent = appState.signatures.cctv.stampedAt;
+            }
+            if (appState.signatures.manager?.stampedAt) {
+                document.getElementById('sig-time-manager').textContent = appState.signatures.manager.stampedAt;
+            }
+
+            dateInput.addEventListener('change', (e) => {
+                appState.date = e.target.value;
+                saveState();
+            });
+
+            storeInput.addEventListener('input', (e) => {
+                appState.storeUnit = e.target.value;
+                saveState();
+            });
+
+            cctvInput.addEventListener('input', (e) => {
+                appState.cctvOperator = e.target.value;
+                document.getElementById('sig-name-cctv').textContent = e.target.value || '______________________';
+                saveState();
+            });
+
+            managerInput.addEventListener('input', (e) => {
+                appState.storeManager = e.target.value;
+                document.getElementById('sig-name-manager').textContent = e.target.value || '______________________';
+                saveState();
+            });
+
+            document.getElementById('search-input').addEventListener('input', renderTable);
+            document.getElementById('category-filter').addEventListener('change', renderTable);
+        }
+
+        /**
+         * Inicialização geral após carregamento da janela
+         */
+        window.onload = function () {
+            loadState();
+            bindHeaderInputs();
+            updateCategoryFilterOptions();
+            renderTable();
+            initSignatureInputs();
+            updateSignaturesUI();
+            lucide.createIcons();
+        };
+    </script>
+</body>
+</html>
